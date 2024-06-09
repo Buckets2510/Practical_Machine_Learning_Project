@@ -1,0 +1,155 @@
+---
+title: "Machine Learning Project"
+author: "Brandon Robinson"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Synopsis
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har
+
+
+## Data
+The training data for this project is available here: 
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data is available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har
+
+## Project Task
+The goal of your project is to predict the manner in which the user did the exercise. This is the "classe" variable in the training set. We will train 3 models for this exercise: **Decision Tree** , **Random Forest**, and **Gradient Boosted Trees** using k-cross validation on the training set. A validation set will be used to predict the accuracy and out of sample error. The selected model will be used to predict 20 different test cases using a test csv. 
+
+## Loading and Pre-Processing the Data
+
+First the following packages will be loaded and the seed will be set:
+
+```{r, echo = TRUE}
+library(ggplot2)
+library(rattle)
+library(caret)
+library(kernlab)
+library(corrplot)
+library(data.table)
+library(randomForest)
+library(rpart)
+set.seed(1234)
+```
+
+The next step is to load the csv files:
+
+```{r, echo = TRUE}
+testing <- read.csv("./pml-testing.csv")
+training <- read.csv("./pml-training.csv")
+```
+The files were previously downloaded locally to the project folder.
+
+Next, the data will be cleaned by removing NAs, irrelevant columns, and near non zero variables
+
+```{r, echo = TRUE}
+inTrain <- createDataPartition(y=training$classe, p=0.7,list=F)
+train <- training[inTrain, ]
+validate <- training[-inTrain, ]
+```
+
+Removing unnecessary columns from the data table
+```{r, echo = TRUE}
+trainsub <- subset(train, select = -c(X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp))
+validatesub <- subset(validate, select = -c(X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp))
+```
+
+Removing NAs
+```{r, echo = TRUE}
+train_NA <- colSums(is.na(trainsub))/nrow(trainsub) < 0.9
+train2 <- trainsub[,train_NA]
+validate2 <- validatesub[,train_NA]
+```
+
+Removing non-zero variables
+```{r, echo = TRUE}
+nvz <- nearZeroVar(train2)
+dim(train2)
+train_final <- train2[,-nvz]
+validate_final <- validate2[,-nvz]
+```
+
+The final step of pre-processing is to change classe to a factor variable in both sets
+```{r, echo = TRUE}
+train_final$classe <- as.factor(train_final$classe)
+validate_final$classe <- as.factor(validate_final$classe)
+```
+
+Now that the data is cleaned / pre-processed we can begin the next of building the 3 models
+
+## Building the Models
+Random forest and boosting are known to produce the most accurate models. Control will be a 3-fold cross validation
+
+First model will be the random forest:
+```{r, echo = TRUE}
+modelRF <- train(classe ~ ., data=train_final, method="rf", prox=TRUE, trControl = trainControl(method="cv",number=3,verboseIter = F))
+predictRF <- predict(modelRF, validate_final)
+cmRF <- confusionMatrix(predictRF, factor(validate_final$classe))
+print(cmRF)
+```
+
+The next model will be the boosted model:
+```{r, echo = TRUE}
+modelGBM <- train(classe~., data=train_final, method="gbm", verbose = FALSE, trControl = trainControl(method="cv",number=3))
+predictGBM <- predict(modelGBM, validate_final)
+cmGBM <- confusionMatrix(predictGBM, factor(validate_final$classe))
+print(cmGBM)
+```
+
+The final model will be the decision tree:
+```{r, echo = TRUE}
+modelRPART <- train(classe~., data=train_final, method="rpart", trControl = trainControl(method="cv",number=3,verboseIter = F))
+predictRPART <- predict(modelRPART, validate_final)
+cmRPART <- confusionMatrix(predictRPART, factor(validate_final$classe))
+print(cmRPART)
+```
+
+The last step is to compare the accuracy and out of sample errors for the 3 models:
+```{r, echo = TRUE}
+Accuracy <- rbind(cmRF$overall[1], cmGBM$overall[1], cmRPART$overall[1])
+results <- data.frame(
+        Model = c('RF', 'GBM', 'RPART'),
+        Accuracy,
+        oos_error = 1 - Accuracy
+)
+print(results)
+```
+
+Based on the above results, it can be concluded the random forest model produces the highest accuracy and lowest error rate. This model will be used for the test sets.
+
+## Testing of the model
+The last step is to test the selected model against the test data set:
+
+```{r, echo = TRUE}
+testResult <- predict(modelRF, testing)
+print(testResult)
+```
+
+## Appendix
+Below are the model plots:
+
+Random Forest plot
+```{r modelRF, echo = TRUE}
+plot(modelRF)
+```
+
+Boosted plot
+```{r modelGBM, echo = TRUE}
+plot(modelGBM)
+```
+
+Decision Tree plot
+```{r modelRPART, echo = TRUE}
+fancyRpartPlot(modelRPART$finalModel)
+plot(modelRPART)
+```
+
